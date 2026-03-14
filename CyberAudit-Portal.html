@@ -45,16 +45,28 @@ const uploadScreenshots = async (screenshots, userId) => {
   const result = {};
   for (const [checkId, ss] of Object.entries(screenshots)) {
     if (!ss) continue;
-    if (ss.dataUrl && !ss.dataUrl.startsWith('data:')) { result[checkId]=ss; continue; }
+    // Already a remote URL — no upload needed
+    if (ss.dataUrl && ss.dataUrl.startsWith('http')) { result[checkId]=ss; continue; }
+    // Local data URL — attempt upload to Supabase Storage
     if (ss.dataUrl && ss.dataUrl.startsWith('data:')) {
       try {
         const res=await fetch(ss.dataUrl); const blob=await res.blob();
         const ext=blob.type.split('/')[1]||'png';
         const path=`${userId}/${checkId}_${Date.now()}.${ext}`;
-        const {error}=await db.storage.from('screenshots').upload(path,blob,{upsert:true});
-        if(!error){ const {data}=db.storage.from('screenshots').getPublicUrl(path); result[checkId]={name:ss.name,dataUrl:data.publicUrl}; }
-        else { result[checkId]={name:ss.name,dataUrl:''}; }
-      } catch(e){ result[checkId]={name:ss.name,dataUrl:''}; }
+        const {data:upData,error}=await db.storage.from('screenshots').upload(path,blob,{upsert:true});
+        if(!error){
+          const {data}=db.storage.from('screenshots').getPublicUrl(path);
+          result[checkId]={name:ss.name,dataUrl:data.publicUrl};
+        } else {
+          // Upload failed — keep original data URL so screenshot still displays
+          console.warn('Screenshot upload failed, using data URL fallback:',error.message);
+          result[checkId]=ss;
+        }
+      } catch(e){
+        // Network/other error — keep original data URL so screenshot still displays
+        console.warn('Screenshot upload error, using data URL fallback:',e);
+        result[checkId]=ss;
+      }
     } else { result[checkId]=ss; }
   }
   return result;

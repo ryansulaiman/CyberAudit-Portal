@@ -58,6 +58,30 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMPTZ;
 ALTER TABLE audits ADD COLUMN IF NOT EXISTS period TEXT;
 
+-- SCREENSHOTS STORAGE BUCKET
+-- Ensures the bucket exists and is public so uploaded images are viewable
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+  VALUES ('screenshots', 'screenshots', true, 10485760)
+  ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- Allow anyone to read screenshots (view uploaded proof images)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename='objects' AND schemaname='storage' AND policyname='screenshots_public_read'
+  ) THEN
+    EXECUTE 'CREATE POLICY screenshots_public_read ON storage.objects FOR SELECT TO public USING (bucket_id = ''screenshots'')';
+  END IF;
+END $$;
+
+-- Allow anyone to upload screenshots (employees uploading proof)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename='objects' AND schemaname='storage' AND policyname='screenshots_public_insert'
+  ) THEN
+    EXECUTE 'CREATE POLICY screenshots_public_insert ON storage.objects FOR INSERT TO public WITH CHECK (bucket_id = ''screenshots'')';
+  END IF;
+END $$;
+
 -- Backfill period for existing audits
 UPDATE audits SET period = TO_CHAR(COALESCE(submitted_at, NOW()), 'YYYY-MM') WHERE period IS NULL OR period = '';
 
