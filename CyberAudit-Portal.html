@@ -518,11 +518,25 @@ function DeptModal({th,departments,setDepartments,onClose,addToast}){
   </Modal>;
 }
 
+// ── IMAGE LIGHTBOX ────────────────────────────────────────────────────
+function ImageLightbox({src,onClose}){
+  useEffect(()=>{const h=e=>{if(e.key==="Escape")onClose();};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);},[]);
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={onClose}>
+    <div style={{position:"relative",maxWidth:"92vw",maxHeight:"92vh"}} onClick={e=>e.stopPropagation()}>
+      <img src={src} alt="Screenshot" style={{maxWidth:"90vw",maxHeight:"88vh",objectFit:"contain",borderRadius:10,boxShadow:"0 8px 48px #000c",display:"block"}}/>
+      <button onClick={onClose} style={{position:"absolute",top:-14,right:-14,width:32,height:32,borderRadius:"50%",background:"#fff",border:"none",fontSize:20,lineHeight:"32px",cursor:"pointer",boxShadow:"0 2px 10px #0006",fontWeight:900,color:"#333",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+    </div>
+    <div style={{position:"absolute",bottom:20,color:"rgba(255,255,255,0.55)",fontSize:12,letterSpacing:1}}>Press ESC or click outside to close</div>
+  </div>;
+}
+
 // ── AUDIT REVIEW MODAL ────────────────────────────────────────────────
 function AuditReviewModal({th,audit,users,rejectReason,setRejectReason,onApprove,onReject,onClose}){
+  const [lightboxSrc,setLightboxSrc]=useState(null);
   const emp=users.find(u=>u.id===audit.userId);
   const sc=scoreAudit(audit.checks); const risk=riskOf(sc);
   return <Modal th={th} title={`🔍 Audit — ${emp?.name} (${periodLbl(audit.period)})`} onClose={onClose} width={560}>
+    {lightboxSrc&&<ImageLightbox src={lightboxSrc} onClose={()=>setLightboxSrc(null)}/>}
     <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"center"}}>
       <div style={{fontSize:28,fontWeight:900,color:RC[risk]}}>{sc}%</div>
       <div><Badge risk={risk}/><div style={{marginTop:4}}><StatusPill status={audit.status}/></div></div>
@@ -533,7 +547,10 @@ function AuditReviewModal({th,audit,users,rejectReason,setRejectReason,onApprove
       const hasImg=ss?.dataUrl&&(ss.dataUrl.startsWith('http')||ss.dataUrl.startsWith('data:'));
       return <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:val==="yes"?RB.secure:RB.danger}}>
         <span style={{fontSize:13}}>{val==="yes"?"✅":"❌"} {c.label}</span>
-        {hasImg&&<img src={ss.dataUrl} alt="proof" style={{width:48,height:48,objectFit:"cover",borderRadius:8,cursor:"pointer",border:"2px solid #fff",boxShadow:"0 2px 8px #0002"}} onClick={()=>window.open(ss.dataUrl,'_blank')} title="Click to view full size"/>}
+        {hasImg&&<div style={{flexShrink:0,marginLeft:10}}>
+          <img src={ss.dataUrl} alt="proof" style={{width:72,height:72,objectFit:"cover",borderRadius:8,cursor:"zoom-in",border:"2px solid #fff",boxShadow:"0 2px 8px #0003",display:"block"}} onClick={()=>setLightboxSrc(ss.dataUrl)} title="Click to enlarge"/>
+          <div style={{fontSize:10,color:"#6b7280",textAlign:"center",marginTop:2}}>click to enlarge</div>
+        </div>}
         {ss&&!hasImg&&<span style={{fontSize:11,color:th.sub,background:th.input,padding:"3px 8px",borderRadius:6}}>📸 {ss.name||"Uploaded"}</span>}
         {!ss&&val==="yes"&&<span style={{fontSize:11,color:"#b45309",background:"#fef3c7",padding:"3px 8px",borderRadius:6}}>⚠️ No screenshot</span>}
       </div>;
@@ -551,7 +568,7 @@ function AdminDashboard({user,users,setUsers,audits,setAudits,tasks,setTasks,act
   const [tab,setTab]=useState("overview");
   const [search,setSearch]=useState(""); const [filterDept,setFilterDept]=useState("All"); const [filterRisk,setFilterRisk]=useState("All"); const [taskFilter,setTaskFilter]=useState("all");
   const [selectedAudit,setSelectedAudit]=useState(null); const [rejectReason,setRejectReason]=useState(""); const [commentText,setCommentText]=useState({});
-  const [empModal,setEmpModal]=useState(null); const [bulkModal,setBulkModal]=useState(false); const [deleteModal,setDeleteModal]=useState(null); const [deptModal,setDeptModal]=useState(false); const [historyUser,setHistoryUser]=useState(null);
+  const [empModal,setEmpModal]=useState(null); const [bulkModal,setBulkModal]=useState(false); const [deleteModal,setDeleteModal]=useState(null); const [deptModal,setDeptModal]=useState(false); const [historyUser,setHistoryUser]=useState(null); const [historyLightbox,setHistoryLightbox]=useState(null);
   const [reminderSent,setReminderSent]=useState({});
 
   const period=curPeriod();
@@ -791,6 +808,7 @@ function AdminDashboard({user,users,setUsers,audits,setAudits,tasks,setTasks,act
       {bulkModal&&<BulkImportModal th={th} onImport={bulkImport} onClose={()=>setBulkModal(false)}/>}
       {deleteModal&&<DeleteModal th={th} employee={deleteModal} onConfirm={()=>deleteEmployee(deleteModal)} onClose={()=>setDeleteModal(null)}/>}
       {deptModal&&<DeptModal th={th} departments={departments} setDepartments={setDepartments} onClose={()=>setDeptModal(false)} addToast={addToast}/>}
+      {historyLightbox&&<ImageLightbox src={historyLightbox} onClose={()=>setHistoryLightbox(null)}/>}
       {historyUser&&(()=>{
         const userAudits=audits.filter(a=>a.userId===historyUser.id).sort((a,b)=>(b.period||'').localeCompare(a.period||''));
         return <Modal th={th} title={`📅 Audit History — ${historyUser.name}`} onClose={()=>setHistoryUser(null)} width={560}>
@@ -802,7 +820,7 @@ function AdminDashboard({user,users,setUsers,audits,setAudits,tasks,setTasks,act
             </div>
             {SECURITY_CHECKS.map(c=>{const ss=a.screenshots?.[c.id];const hasImg=ss?.dataUrl&&(ss.dataUrl.startsWith('http')||ss.dataUrl.startsWith('data:'));return<div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${RC[risk]}22`}}>
               <span>{a.checks[c.id]==="yes"?"✅":"❌"} {c.label}</span>
-              {hasImg&&<img src={ss.dataUrl} style={{width:28,height:28,objectFit:"cover",borderRadius:4,cursor:"pointer"}} onClick={()=>window.open(ss.dataUrl,'_blank')}/>}
+              {hasImg&&<img src={ss.dataUrl} style={{width:44,height:44,objectFit:"cover",borderRadius:6,cursor:"zoom-in",border:"1.5px solid #fff",boxShadow:"0 1px 4px #0002",flexShrink:0}} onClick={()=>setHistoryLightbox(ss.dataUrl)} title="Click to enlarge"/>}
             </div>;})}
             <div style={{fontSize:11,color:th.sub,marginTop:8}}>{fmt(a.submittedAt)} · v{a.version} · {a.deviceType} {a.deviceModel}</div>
             {a.rejectedReason&&<div style={{marginTop:6,background:"#fee2e2",borderRadius:6,padding:"4px 8px",fontSize:11,color:"#991b1b"}}>Rejected: {a.rejectedReason}</div>}
