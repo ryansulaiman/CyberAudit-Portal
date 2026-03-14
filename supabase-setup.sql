@@ -1,134 +1,111 @@
--- ═══════════════════════════════════════════════════════════════════
--- CyberAudit Portal — Supabase Database Setup
--- Run this entire file in: Supabase Dashboard → SQL Editor → New query
--- ═══════════════════════════════════════════════════════════════════
+-- CyberAudit Portal — Complete DB Setup (safe to re-run)
+-- Run this in Supabase Dashboard → SQL Editor
 
-
--- ── 1. CREATE TABLES ────────────────────────────────────────────────
-
+-- USERS
 CREATE TABLE IF NOT EXISTS users (
-  id          TEXT PRIMARY KEY,
-  email       TEXT UNIQUE NOT NULL,
-  name        TEXT NOT NULL,
-  role        TEXT NOT NULL DEFAULT 'employee',
-  password    TEXT NOT NULL,
-  department  TEXT DEFAULT 'Engineering',
-  avatar      TEXT,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'employee', password TEXT NOT NULL,
+  department TEXT DEFAULT 'Engineering', avatar TEXT,
+  reset_token TEXT, reset_token_expiry TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- DEPARTMENTS
+CREATE TABLE IF NOT EXISTS departments (
+  id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- AUDITS (period = "YYYY-MM" for monthly tracking)
 CREATE TABLE IF NOT EXISTS audits (
-  id              TEXT PRIMARY KEY,
-  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  version         INTEGER DEFAULT 1,
-  device_type     TEXT,
-  device_model    TEXT,
-  serial_number   TEXT,
-  os_version      TEXT,
-  checks          JSONB DEFAULT '{}',
-  screenshots     JSONB DEFAULT '{}',
-  submitted_at    TIMESTAMPTZ,
-  status          TEXT DEFAULT 'pending_review',
-  rejected_reason TEXT,
-  approved_by     TEXT
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  period TEXT, version INTEGER DEFAULT 1, device_type TEXT, device_model TEXT,
+  serial_number TEXT, os_version TEXT, checks JSONB DEFAULT '{}',
+  screenshots JSONB DEFAULT '{}', submitted_at TIMESTAMPTZ,
+  status TEXT DEFAULT 'pending_review', rejected_reason TEXT, approved_by TEXT
 );
 
+-- TASKS
 CREATE TABLE IF NOT EXISTS tasks (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  audit_id    TEXT REFERENCES audits(id) ON DELETE CASCADE,
-  check_id    TEXT,
-  label       TEXT,
-  status      TEXT DEFAULT 'pending',
-  priority    TEXT DEFAULT 'high',
-  assigned_to TEXT,
-  created_at  TIMESTAMPTZ DEFAULT NOW(),
-  due_date    TIMESTAMPTZ,
-  comments    JSONB DEFAULT '[]'
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  audit_id TEXT, check_id TEXT, label TEXT NOT NULL, status TEXT DEFAULT 'pending',
+  priority TEXT DEFAULT 'high', assigned_to TEXT, created_at TIMESTAMPTZ DEFAULT NOW(),
+  due_date TIMESTAMPTZ, comments JSONB DEFAULT '[]'
 );
 
+-- ACTIVITY
 CREATE TABLE IF NOT EXISTS activity (
-  id        TEXT PRIMARY KEY,
-  user_id   TEXT,
-  action    TEXT,
-  target    TEXT,
-  timestamp TIMESTAMPTZ DEFAULT NOW()
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+  action TEXT NOT NULL, target TEXT, timestamp TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- NOTIFICATIONS
 CREATE TABLE IF NOT EXISTS notifications (
-  id      TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  text    TEXT NOT NULL,
-  read    BOOLEAN DEFAULT FALSE,
-  time    TIMESTAMPTZ DEFAULT NOW()
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, text TEXT NOT NULL,
+  read BOOLEAN DEFAULT FALSE, time TIMESTAMPTZ DEFAULT NOW()
 );
 
-
--- ── 2. DISABLE ROW LEVEL SECURITY (internal tool — re-enable if you add Supabase Auth later)
-
-ALTER TABLE users         DISABLE ROW LEVEL SECURITY;
-ALTER TABLE audits        DISABLE ROW LEVEL SECURITY;
-ALTER TABLE tasks         DISABLE ROW LEVEL SECURITY;
-ALTER TABLE activity      DISABLE ROW LEVEL SECURITY;
+-- Disable RLS on all tables
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE departments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE audits DISABLE ROW LEVEL SECURITY;
+ALTER TABLE tasks DISABLE ROW LEVEL SECURITY;
+ALTER TABLE activity DISABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications DISABLE ROW LEVEL SECURITY;
 
+-- Add new columns if upgrading from previous version
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMPTZ;
+ALTER TABLE audits ADD COLUMN IF NOT EXISTS period TEXT;
 
--- ── 3. SEED INITIAL DEMO DATA ────────────────────────────────────────
--- (Safe to re-run — ON CONFLICT DO NOTHING skips duplicates)
+-- Backfill period for existing audits
+UPDATE audits SET period = TO_CHAR(COALESCE(submitted_at, NOW()), 'YYYY-MM') WHERE period IS NULL OR period = '';
 
+-- Seed departments
+INSERT INTO departments (id, name) VALUES
+  ('dept_1','Engineering'),('dept_2','Marketing'),('dept_3','Finance'),
+  ('dept_4','HR'),('dept_5','IT'),('dept_6','Sales'),('dept_7','Legal')
+ON CONFLICT (id) DO NOTHING;
+
+-- Seed users
 INSERT INTO users (id, email, name, role, password, department, avatar) VALUES
-  ('u1', 'admin@company.com',  'Alex Admin',    'admin',    'admin123', 'IT',          'AA'),
-  ('u2', 'alice@company.com',  'Alice Johnson',  'employee', 'pass123',  'Engineering', 'AJ'),
-  ('u3', 'bob@company.com',    'Bob Smith',      'employee', 'pass123',  'Marketing',   'BS'),
-  ('u4', 'carol@company.com',  'Carol White',    'employee', 'pass123',  'Finance',     'CW'),
-  ('u5', 'david@company.com',  'David Brown',    'employee', 'pass123',  'HR',          'DB')
+  ('u1','admin@company.com','Alex Admin','admin','admin123','IT','AA'),
+  ('u2','alice@company.com','Alice Brown','employee','pass123','Engineering','AB'),
+  ('u3','bob@company.com','Bob Smith','employee','pass123','Marketing','BS'),
+  ('u4','carol@company.com','Carol White','employee','pass123','Finance','CW'),
+  ('u5','david@company.com','David Lee','employee','pass123','IT','DL')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO audits (id, user_id, version, device_type, device_model, serial_number, os_version, checks, screenshots, submitted_at, status) VALUES
-  ('a1', 'u2', 1, 'Mac',     'MacBook Pro 14"',  'C02XG2JH', 'macOS Sonoma 14.3',
-   '{"password_manager":"yes","antivirus":"yes","os_updated":"yes"}',
-   '{"password_manager":{"name":"1pass.png","dataUrl":""},"antivirus":{"name":"av.png","dataUrl":""},"os_updated":{"name":"os.png","dataUrl":""}}',
-   '2026-02-20T10:22:00Z', 'approved'),
-  ('a2', 'u3', 1, 'Windows', 'Dell XPS 15',      '8F3K2M1',  'Windows 11 23H2',
-   '{"password_manager":"no","antivirus":"yes","os_updated":"yes"}',
-   '{"antivirus":{"name":"av.png","dataUrl":""},"os_updated":{"name":"os.png","dataUrl":""}}',
-   '2026-02-22T14:05:00Z', 'pending_review'),
-  ('a3', 'u4', 1, 'Windows', 'Lenovo ThinkPad',  'PF2KQR9',  'Windows 10 22H2',
-   '{"password_manager":"yes","antivirus":"no","os_updated":"no"}',
-   '{"password_manager":{"name":"1pass.png","dataUrl":""}}',
-   '2026-02-25T09:15:00Z', 'rejected')
+-- Seed audits (current month)
+INSERT INTO audits (id, user_id, period, version, device_type, device_model, serial_number, os_version, checks, screenshots, submitted_at, status) VALUES
+  ('a1','u2',TO_CHAR(NOW(),'YYYY-MM'),1,'Mac','MacBook Pro M3','C02X1234','macOS 14.4','{"password_manager":"yes","antivirus":"yes","os_updated":"yes"}','{}',NOW()-INTERVAL '2 days','approved'),
+  ('a2','u3',TO_CHAR(NOW(),'YYYY-MM'),1,'Windows','Dell XPS 15','SVC12345','Windows 11','{"password_manager":"yes","antivirus":"no","os_updated":"yes"}','{}',NOW()-INTERVAL '1 day','pending_review'),
+  ('a3','u4',TO_CHAR(NOW(),'YYYY-MM'),1,'Mac','MacBook Air M2','C02Y5678','macOS 14.3','{"password_manager":"no","antivirus":"no","os_updated":"yes"}','{}',NOW()-INTERVAL '3 hours','rejected')
 ON CONFLICT (id) DO NOTHING;
 
-UPDATE audits SET rejected_reason = 'Screenshots missing for failed checks.' WHERE id = 'a3';
-
+-- Seed tasks
 INSERT INTO tasks (id, user_id, audit_id, check_id, label, status, priority, assigned_to, created_at, due_date, comments) VALUES
-  ('t1', 'u3', 'a2', 'password_manager', 'Install 1Password',           'pending', 'high', 'u1', '2026-02-22T14:05:00Z', NOW() + INTERVAL '5 days', '[]'),
-  ('t2', 'u4', 'a3', 'antivirus',        'Install & activate antivirus','pending', 'high', 'u1', '2026-02-25T09:15:00Z', NOW() + INTERVAL '5 days', '[]'),
-  ('t3', 'u4', 'a3', 'os_updated',       'Update operating system',     'pending', 'high', 'u1', '2026-02-25T09:15:00Z', NOW() + INTERVAL '5 days', '[]')
+  ('t1','u3','a2','antivirus','Install & activate antivirus','pending','high','u1',NOW()-INTERVAL '1 day',NOW()+INTERVAL '5 days','[]'),
+  ('t2','u4','a3','password_manager','Install 1Password','in_progress','high','u1',NOW()-INTERVAL '3 hours',NOW()+INTERVAL '5 days','[]'),
+  ('t3','u4','a3','antivirus','Install & activate antivirus','pending','high','u1',NOW()-INTERVAL '3 hours',NOW()+INTERVAL '5 days','[]')
 ON CONFLICT (id) DO NOTHING;
 
+-- Seed activity
 INSERT INTO activity (id, user_id, action, target, timestamp) VALUES
-  ('ac1', 'u1', 'approved audit', 'Alice Johnson', '2026-02-21T11:00:00Z'),
-  ('ac2', 'u1', 'rejected audit', 'Carol White',   '2026-02-26T10:00:00Z')
+  ('ac1','u2','submitted audit','March 2026',NOW()-INTERVAL '2 days'),
+  ('ac2','u1','approved audit','Alice Brown',NOW()-INTERVAL '1 day'),
+  ('ac3','u3','submitted audit','March 2026',NOW()-INTERVAL '1 day'),
+  ('ac4','u4','submitted audit','March 2026',NOW()-INTERVAL '3 hours')
 ON CONFLICT (id) DO NOTHING;
 
+-- Seed notifications
 INSERT INTO notifications (id, user_id, text, read, time) VALUES
-  ('n1', 'u2', 'Your audit has been approved ✅',                     false, '2026-02-21T11:00:00Z'),
-  ('n2', 'u3', 'Your audit is pending review',                         false, '2026-02-22T14:05:00Z'),
-  ('n3', 'u4', 'Your audit was rejected — please resubmit',           false, '2026-02-26T10:00:00Z'),
-  ('n4', 'u5', '⚠️ You haven''t submitted your security audit yet!', false, '2026-03-05T09:00:00Z')
+  ('n1','u1','📋 Alice Brown submitted a March 2026 audit for review',TRUE,NOW()-INTERVAL '2 days'),
+  ('n2','u1','📋 Bob Smith submitted a March 2026 audit for review',FALSE,NOW()-INTERVAL '1 day'),
+  ('n3','u1','📋 Carol White submitted a March 2026 audit for review',FALSE,NOW()-INTERVAL '3 hours'),
+  ('n4','u2','✅ Your March 2026 audit has been approved!',FALSE,NOW()-INTERVAL '1 day'),
+  ('n5','u4','❌ Your March 2026 audit was rejected: Missing antivirus and password manager',FALSE,NOW()-INTERVAL '2 hours')
 ON CONFLICT (id) DO NOTHING;
 
-
--- ── 4. STORAGE BUCKET (screenshots) ─────────────────────────────────
--- Cannot be created via SQL. Do this manually in Supabase:
---   Dashboard → Storage → New bucket
---   Name: screenshots
---   Public: YES (toggle on)
--- This lets employees upload proof screenshots that admins can view.
-
-
--- ═══════════════════════════════════════════════════════════════════
--- DONE! You should see 5 tables in your Table Editor.
--- Next: open CyberAudit-Portal.html in your browser.
--- ═══════════════════════════════════════════════════════════════════
+-- STORAGE: Create a public bucket named "screenshots" manually in:
+-- Supabase Dashboard → Storage → New bucket → name: screenshots → Public ON
